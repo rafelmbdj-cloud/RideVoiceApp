@@ -105,7 +105,21 @@ public class MainActivity extends Activity {
         btnRefresh = new Button(this);
         btnRefresh.setText("Atualizar Status");
 
+        Button btnToggleRobot = new Button(this);
+        btnToggleRobot.setText(prefs.enabled() ? "PAUSAR ROBÔ (⏸)" : "ATIVAR ROBÔ (▶)");
+        btnToggleRobot.setTextSize(16f);
+        btnToggleRobot.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnToggleRobot.setPadding(0, 20, 0, 20);
+        btnToggleRobot.setOnClickListener(v -> {
+            boolean newState = !prefs.enabled();
+            prefs.setEnabled(newState);
+            btnToggleRobot.setText(newState ? "PAUSAR ROBÔ (⏸)" : "ATIVAR ROBÔ (▶)");
+            Toast.makeText(this, newState ? "▶️ Robô Ativado!" : "⏸️ Robô Pausado!", Toast.LENGTH_SHORT).show();
+            sendBroadcast(new Intent(RideVoiceService.ACTION_TEST_CLICK).setPackage(getPackageName()));
+        });
+
         root.addView(txtStatus);
+        root.addView(btnToggleRobot);
         root.addView(lblTitle);
         root.addView(lblGood);
         root.addView(goodMinimumInput);
