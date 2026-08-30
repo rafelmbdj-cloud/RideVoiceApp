@@ -332,17 +332,6 @@ public class RideVoiceService extends AccessibilityService {
 
         int[] location = new int[2];
         clickTarget.getLocationOnScreen(location);
-        boolean targetWasAttached = clickTarget.getParent() != null;
-
-        setTargetAppearance(Color.YELLOW, "•");
-        if (targetWasAttached) {
-            try {
-                windowManager.removeView(clickTarget);
-            } catch (Exception exception) {
-                prefs.status("Não foi possível liberar o ponto da mira");
-                return;
-            }
-        }
 
         Path clickPath = new Path();
         clickPath.moveTo(
@@ -350,11 +339,13 @@ public class RideVoiceService extends AccessibilityService {
                 location[1] + clickTarget.getHeight() / 2f
         );
 
+        setTargetAppearance(Color.YELLOW, "•");
+
         Handler handler = new Handler();
         for (int i = 0; i < tapCount; i++) {
             handler.postDelayed(() -> dispatchSingleTap(clickPath), i * 150);
         }
-        handler.postDelayed(() -> restoreClickTarget(targetWasAttached), (tapCount - 1) * 150 + 300);
+        handler.postDelayed(() -> restoreClickTarget(true), (tapCount - 1) * 150 + 300);
     }
 
     private void dispatchSingleTap(Path clickPath) {
