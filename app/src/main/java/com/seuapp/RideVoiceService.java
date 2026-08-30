@@ -21,6 +21,7 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
@@ -49,6 +50,16 @@ public class RideVoiceService extends AccessibilityService {
     private long lastOfferTime;
     private long lastFeedbackTime;
     private String lastFeedbackKey;
+    private long lastTouchUpTime = 0;
+    private final Handler singleTapHandler = new Handler();
+    private final Runnable singleTapRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (prefs != null && prefs.enabled()) {
+                performAutomaticClick();
+            }
+        }
+    };
 
     private final BroadcastReceiver commandReceiver = new BroadcastReceiver() {
         @Override
@@ -132,6 +143,13 @@ public class RideVoiceService extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
+        if (prefs == null || !prefs.enabled()) return;
+
+        // CORREÇÃO CRÍTICA: Ignorar eventos vindos do próprio aplicativo!
+        CharSequence eventPkg = event.getPackageName();
+        if (eventPkg != null && getPackageName().equals(eventPkg.toString())) {
+            return;
+        }
 
         try {
             syncClickTarget();
@@ -161,6 +179,15 @@ public class RideVoiceService extends AccessibilityService {
     }
 
     private String accessibilityText(AccessibilityEvent event) {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) {
+            CharSequence rootPkg = root.getPackageName();
+            if (rootPkg != null && getPackageName().equals(rootPkg.toString())) {
+                root.recycle();
+                return "";
+            }
+        }
+
         StringBuilder text = new StringBuilder();
         for (CharSequence item : event.getText()) {
             if (item != null) text.append(item).append(' ');
@@ -168,11 +195,16 @@ public class RideVoiceService extends AccessibilityService {
 
         AccessibilityNodeInfo source = event.getSource();
         if (source != null) {
+            CharSequence srcPkg = source.getPackageName();
+            if (srcPkg != null && getPackageName().equals(srcPkg.toString())) {
+                source.recycle();
+                if (root != null) root.recycle();
+                return "";
+            }
             appendNodeText(source, text);
             source.recycle();
         }
 
-        AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root != null) {
             appendNodeText(root, text);
             root.recycle();
@@ -206,7 +238,7 @@ public class RideVoiceService extends AccessibilityService {
     private void syncClickTarget() {
         if (clickTarget == null || windowManager == null || prefs == null) return;
 
-        boolean shouldShow = prefs.enabled() && prefs.clickTarget();
+        boolean shouldShow = prefs.clickTarget();
         boolean isAttached = clickTarget.getParent() != null;
 
         if (shouldShow && !isAttached) {
@@ -253,7 +285,24 @@ public class RideVoiceService extends AccessibilityService {
             case MotionEvent.ACTION_CANCEL:
                 prefs.setClickTargetPosition(clickTargetParams.x, clickTargetParams.y);
                 if (event.getActionMasked() == MotionEvent.ACTION_UP && !targetMoved) {
-                    performAutomaticClick();
+                    long now = System.currentTimeMillis();
+                    if (now - lastTouchUpTime < 350) {
+                        singleTapHandler.removeCallbacks(singleTapRunnable);
+                        lastTouchUpTime = 0;
+                        boolean newState = !prefs.enabled();
+                        prefs.setEnabled(newState);
+                        if (newState) {
+                            setTargetAppearance(Color.rgb(0, 230, 118), "•");
+                            Toast.makeText(this, "▶️ Robô Ativado!", Toast.LENGTH_SHORT).show();
+                        } else {
+                            setTargetAppearance(Color.GRAY, "⏸");
+                            Toast.makeText(this, "⏸️ Robô Pausado!", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        lastTouchUpTime = now;
+                        singleTapHandler.removeCallbacks(singleTapRunnable);
+                        singleTapHandler.postDelayed(singleTapRunnable, 350);
+                    }
                 }
                 return true;
 
@@ -329,7 +378,12 @@ public class RideVoiceService extends AccessibilityService {
     private void restoreClickTarget(boolean targetWasAttached) {
         if (clickTarget == null) return;
 
-        setTargetAppearance(Color.rgb(0, 230, 118), "•");
+        if (prefs != null && !prefs.enabled()) {
+            setTargetAppearance(Color.GRAY, "⏸");
+        } else {
+            setTargetAppearance(Color.rgb(0, 230, 118), "•");
+        }
+
         if (targetWasAttached && clickTarget.getParent() == null) {
             try {
                 windowManager.addView(clickTarget, clickTargetParams);
@@ -341,8 +395,14 @@ public class RideVoiceService extends AccessibilityService {
     private void setTargetAppearance(int color, String symbol) {
         if (clickTarget == null) return;
 
+        if (prefs != null && !prefs.enabled() && color != Color.YELLOW) {
+            color = Color.GRAY;
+            symbol = "⏸";
+        }
+
         clickTarget.setText(symbol);
         clickTarget.setTextColor(color);
+        clickTarget.setAlpha(0.65f); // Anti-burn-in para tela AMOLED
 
         GradientDrawable shape = new GradientDrawable();
         shape.setShape(GradientDrawable.OVAL);
